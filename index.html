@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulación Planta de Vidrio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: mesa de taller clara; maqueta isométrica a la izquierda, tablero de control a la derecha. Tema único (claro) por decisión. */
+:root{
+  color-scheme: light;
+  --bench:#e7ebe2;      /* mesa de trabajo */
+  --panel:#fbfcf8;      /* tarjetas */
+  --ink:#1d2822;        /* texto */
+  --muted:#5b685f;
+  --line:#ccd3c6;
+  --kraft:#c8a273;      /* cartón de la maqueta */
+  --furnace:#d5352b;    /* horno */
+  --glass:#22806d;      /* vidrio / acento */
+  --signal:#f0b429;     /* advertencia */
+  --ok:#2b9348; --bad:#c92a2a;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Barlow","Segoe UI",Roboto,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bench);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45}
+.wrap{max-width:1380px;margin:0 auto;padding:20px 16px 32px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:8px 24px;border-bottom:3px solid var(--ink);padding-bottom:10px}
+h1{font-family:var(--display);font-weight:700;font-size:34px;line-height:1;margin:0;text-transform:uppercase;letter-spacing:.5px;text-wrap:balance}
+header p{margin:0;color:var(--muted);max-width:60ch}
+h2{font-family:var(--display);font-weight:700;font-size:19px;text-transform:uppercase;letter-spacing:.6px;margin:0 0 10px}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;align-items:start}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px}
+canvas{display:block;width:100%;height:auto;aspect-ratio:1000/640;border-radius:4px;background:#f1f3ec;cursor:pointer}
+.status{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:0 6px 4px;color:var(--muted);font-size:14px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--ink)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--ok)}
+.dot.paused{background:var(--signal)}
+.side{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px}
+.btns{display:flex;gap:8px;margin-bottom:12px}
+button{font:600 15px var(--body);cursor:pointer;border-radius:4px;border:2px solid var(--ink);padding:7px 14px;background:var(--panel);color:var(--ink)}
+button.primary{background:var(--ink);color:#fff}
+button:hover{filter:brightness(1.12)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
+.ctrl{display:grid;grid-template-columns:1fr auto;gap:2px 8px;margin-top:10px}
+.ctrl label{font-weight:500}
+.ctrl output{font-variant-numeric:tabular-nums;font-weight:600}
+.ctrl input{grid-column:1/-1;width:100%;accent-color:var(--glass)}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpi{border-left:4px solid var(--kraft);padding:4px 0 4px 8px}
+.kpi b{display:block;font-family:var(--display);font-size:26px;line-height:1.05;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:13px}
+.kpi.good{border-color:var(--ok)} .kpi.bad{border-color:var(--bad)} .kpi.glass{border-color:var(--glass)} .kpi.hot{border-color:var(--furnace)}
+.lower{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:16px}
+.legend{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.legend button{width:100%;text-align:left;border:1px solid var(--line);font-weight:500;padding:6px 10px;display:flex;gap:8px}
+.legend button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.legend .n{font-family:var(--display);font-weight:700;min-width:22px}
+#stName{font-family:var(--display);font-size:24px;font-weight:700;text-transform:uppercase;line-height:1.1;margin:0 0 6px}
+#stDesc{margin:0 0 10px}
+#stLive{margin:0;padding:8px 10px;background:#eef3ea;border-left:4px solid var(--glass);font-variant-numeric:tabular-nums;font-weight:500}
+#log{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:14px}
+#log li{display:grid;grid-template-columns:52px 1fr;gap:8px;border-bottom:1px dashed var(--line);padding-bottom:3px}
+#log time{font-variant-numeric:tabular-nums;color:var(--muted)}
+.note{color:var(--muted);font-size:13px;margin:0;max-width:95ch}
+@media (max-width:1050px){.main{grid-template-columns:1fr}.lower{grid-template-columns:1fr}}
+@media (max-width:480px){h1{font-size:27px}.kpi b{font-size:22px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Planta fabricadora de vidrio</h1>
+    <p>Simulación del proceso de vidrio plano en las 10 estaciones de la maqueta (60 × 30 cm). Toca un cartel o una estación de la leyenda para ver su detalle.</p>
+  </header>
+
+  <div class="main">
+    <section class="stage" aria-label="Maqueta animada">
+      <canvas id="cv" width="1000" height="640" role="img" aria-label="Vista isométrica de la planta de vidrio con el flujo de materiales animado"></canvas>
+      <div class="status">
+        <span class="pill"><span class="dot" id="runDot"></span><span id="runTxt">En marcha</span></span>
+        <span>Tiempo simulado: <b id="clock">00:00</b></span>
+        <span>Horno: <b id="tNow">1500 °C</b></span>
+        <span>Defectos actuales: <b id="defNow">5 %</b></span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h2>Controles</h2>
+        <div class="btns">
+          <button class="primary" id="btnRun" type="button">Pausar</button>
+          <button id="btnReset" type="button">Reiniciar</button>
+        </div>
+        <div class="ctrl"><label for="inSpeed">Velocidad de simulación</label><output id="outSpeed" for="inSpeed">×2</output>
+          <input id="inSpeed" type="range" min="1" max="10" step="1" value="2"></div>
+        <div class="ctrl"><label for="inRate">Tirada de la línea</label><output id="outRate" for="inRate">60 láminas/h</output>
+          <input id="inRate" type="range" min="20" max="120" step="5" value="60"></div>
+        <div class="ctrl"><label for="inTemp">Temperatura del horno</label><output id="outTemp" for="inTemp">1500 °C</output>
+          <input id="inTemp" type="range" min="1400" max="1600" step="10" value="1500"></div>
+        <div class="ctrl"><label for="inDef">Defectos base del proceso</label><output id="outDef" for="inDef">5 %</output>
+          <input id="inDef" type="range" min="0" max="20" step="1" value="5"></div>
+      </div>
+
+      <div class="card">
+        <h2>Indicadores</h2>
+        <div class="kpis">
+          <div class="kpi good"><b id="kGood">0</b><span>Láminas aprobadas</span></div>
+          <div class="kpi bad"><b id="kBad">0</b><span>Láminas rechazadas</span></div>
+          <div class="kpi glass"><b id="kYield">–</b><span>Rendimiento</span></div>
+          <div class="kpi"><b id="kBoxes">0</b><span>Cajas embaladas</span></div>
+          <div class="kpi"><b id="kWh">0</b><span>Pallets en almacén</span></div>
+          <div class="kpi"><b id="kTrucks">0</b><span>Camiones despachados</span></div>
+          <div class="kpi glass"><b id="kCasco">0 kg</b><span>Casco reciclado</span></div>
+          <div class="kpi"><b id="kRaw">0 t</b><span>Materia prima usada</span></div>
+          <div class="kpi hot"><b id="kEnergy">0 GJ</b><span>Energía del horno</span></div>
+          <div class="kpi"><b id="kOut">0 t</b><span>Vidrio aprobado</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="lower">
+    <div class="card">
+      <h2>Leyenda</h2>
+      <ol class="legend" id="legend"></ol>
+    </div>
+    <div class="card">
+      <h2>Estación seleccionada</h2>
+      <p id="stName"></p>
+      <p id="stDesc"></p>
+      <p id="stLive"></p>
+    </div>
+    <div class="card">
+      <h2>Bitácora de planta</h2>
+      <ul id="log"></ul>
+    </div>
+  </div>
+
+  <p class="note">Valores referenciales para fines didácticos: lámina de 2 × 1 m y 4 mm (≈ 20 kg), 24 kg de mezcla por lámina, mezcla simplificada 60 % arena, 20 % sosa, 20 % caliza, hasta 20 % de casco reciclado, 6 láminas por caja, 4 cajas por pallet y 3 pallets por camión. Fuera del rango 1480–1560 °C aumentan los defectos.</p>
+</div>
+
+<script>
+(function(){
+"use strict";
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=1000,H=640,SZ=11,OX=225,OY=150,EX=[12.4,2.4],EY=[-5.6,8.2];
+function fit(){const d=Math.min(window.devicePixelRatio||1,2);cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);}
+fit();window.addEventListener('resize',fit);
+
+/* ---------- proyección y primitivas ---------- */
+function P(x,y,z){z=z||0;return [OX+x*EX[0]+y*EY[0], OY+x*EX[1]+y*EY[1]-z*SZ];}
+function shade(hex,f){const n=parseInt(hex.slice(1),16);let r=n>>16,g=(n>>8)&255,b=n&255;
+  if(f<=1){r*=f;g*=f;b*=f;}else{const k=f-1;r+=(255-r)*k;g+=(255-g)*k;b+=(255-b)*k;}
+  return 'rgb('+(r|0)+','+(g|0)+','+(b|0)+')';}
+function poly(pts,fill,stroke,lw){ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw||1;ctx.stroke();}}
+const EDGE='rgba(40,30,20,.35)';
+function box(x,y,w,d,h,col,z0){z0=z0||0;const z1=z0+h;
+  poly([P(x,y+d,z0),P(x+w,y+d,z0),P(x+w,y+d,z1),P(x,y+d,z1)],col,EDGE);
+  poly([P(x+w,y,z0),P(x+w,y+d,z0),P(x+w,y+d,z1),P(x+w,y,z1)],shade(col,.8),EDGE);
+  poly([P(x,y,z1),P(x+w,y,z1),P(x+w,y+d,z1),P(x,y+d,z1)],shade(col,1.25),EDGE);}
+function faceY(x0,x1,y,z0,z1,fill,stroke){poly([P(x0,y,z0),P(x1,y,z0),P(x1,y,z1),P(x0,y,z1)],fill,stroke);}
+function faceX(x,y0,y1,z0,z1,fill,stroke){poly([P(x,y0,z0),P(x,y1,z0),P(x,y1,z1),P(x,y0,z1)],fill,stroke);}
+function topQ(x0,x1,y0,y1,z,fill,stroke){poly([P(x0,y0,z),P(x1,y0,z),P(x1,y1,z),P(x0,y1,z)],fill,stroke);}
+function cyl(cx,cy,r,z0,z1,col){const N=24,tm=Math.atan2(EY[0],EX[0]),pt=(t,z)=>P(cx+r*Math.cos(t),cy+r*Math.sin(t),z);
+  let dir=1;if(pt(tm+Math.PI/2,z0)[1]>pt(tm+1.5*Math.PI,z0)[1])dir=-1;
+  const L=pt(tm+Math.PI,z0),R=pt(tm,z0),Lt=pt(tm+Math.PI,z1),Rt=pt(tm,z1);
+  const g=ctx.createLinearGradient(L[0],0,R[0],0);g.addColorStop(0,shade(col,.95));g.addColorStop(.4,shade(col,1.18));g.addColorStop(1,shade(col,.66));
+  ctx.beginPath();ctx.moveTo(Lt[0],Lt[1]);ctx.lineTo(L[0],L[1]);for(let i=1;i<=N;i++){const p=pt(tm+Math.PI+dir*Math.PI*i/N,z0);ctx.lineTo(p[0],p[1]);}
+  ctx.lineTo(Rt[0],Rt[1]);for(let i=N-1;i>=0;i--){const p=pt(tm+Math.PI+dir*Math.PI*i/N,z1);ctx.lineTo(p[0],p[1]);}ctx.closePath();
+  ctx.fillStyle=g;ctx.fill();ctx.strokeStyle=EDGE;ctx.lineWidth=1;ctx.stroke();
+  ctx.beginPath();for(let i=0;i<2*N;i++){const p=pt(Math.PI*i/N,z1);i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]);}ctx.closePath();ctx.fillStyle=shade(col,.55);ctx.fill();ctx.stroke();}
+function gtext(t,x,y,size,color,alongY,weight){const p=P(x,y,0.02);ctx.save();ctx.translate(p[0],p[1]);
+  if(alongY)ctx.transform(0.564,-0.826,0.884,0.171,0,0);else ctx.transform(0.982,0.19,-0.443,0.649,0,0);
+  ctx.font=(weight||700)+' '+size+'px "Barlow Condensed","Arial Narrow",Arial,sans-serif';ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(t,0,0);ctx.restore();}
+function stext(t,p,size,color,weight){ctx.font=(weight||700)+' '+size+'px "Barlow Condensed","Arial Narrow",Arial,sans-serif';ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(t,p[0],p[1]);}
+function gline(a,b,col,lw,dash){const p=P(a[0],a[1],0.02),q=P(b[0],b[1],0.02);ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.setLineDash(dash||[]);ctx.stroke();ctx.setLineDash([]);}
+
+/* ---------- estaciones ---------- */
+const ST=[
+ {n:1,name:'Silos de materia prima',sign:[7.2,4.5,13],pole:26,
+  desc:'Almacenan arena de sílice, sosa (carbonato de sodio) y caliza. Cada silo dosifica su material hacia la tolva y se repone cuando baja del 15 %.',
+  live:s=>'Arena '+pct(s.silo.arena/CAP.arena)+' · Sosa '+pct(s.silo.sosa/CAP.sosa)+' · Caliza '+pct(s.silo.caliza/CAP.caliza)},
+ {n:2,name:'Tolva de mezclado y carga',sign:[14,22,4.2],pole:26,dx:-48,
+  desc:'Mezcla las tres materias primas con el casco reciclado y alimenta el horno por la faja transportadora.',
+  live:s=>'Alimentación '+Math.round(s.rate*24)+' kg/h · Casco disponible '+Math.round(s.cascoStock)+' kg'},
+ {n:3,name:'Horno de fusión',sign:[22,12,9],pole:34,
+  desc:'Funde la mezcla a unos 1500 °C hasta obtener vidrio líquido homogéneo. Si la temperatura cae quedan infundidos; si sube demasiado aparecen burbujas y se gasta más energía.',
+  live:s=>'Temperatura '+Math.round(s.T)+' °C · Consigna '+s.setT+' °C'},
+ {n:4,name:'Baño de estaño / moldeo',sign:[27.5,13.8,1.3],pole:40,dx:22,
+  desc:'El vidrio fundido flota sobre estaño líquido y se extiende en una cinta continua, plana y de espesor uniforme.',
+  live:s=>'Velocidad de cinta '+(s.rate*2/60).toFixed(1)+' m/min · Ancho 1 m · Espesor 4 mm'},
+ {n:5,name:'Horno de recocido (lehr)',sign:[36.5,12,3.8],pole:50,
+  desc:'Enfría la cinta de forma lenta y controlada, de unos 600 °C a 60 °C, para eliminar tensiones internas y evitar que el vidrio se quiebre.',
+  live:s=>'Entrada 600 °C → salida 60 °C · Permanencia '+(9/(s.rate*2.2/60)).toFixed(1)+' min'},
+ {n:6,name:'Control de calidad',sign:[42.5,9.4,3.5],pole:24,
+  desc:'Inspecciona cada tramo de cinta. Luz verde: lámina aprobada. Luz roja: lámina con defecto, que se desvía a reciclaje.',
+  live:s=>'Probabilidad de defecto '+(defP(s)*100).toFixed(1)+' % · Inspeccionadas '+(s.good+s.bad)},
+ {n:7,name:'Corte y embalaje',sign:[51.5,18.5,1.9],pole:26,
+  desc:'Corta la cinta en láminas de 2 × 1 m, las apila y las embala en cajas sobre pallets.',
+  live:s=>'Pila '+s.stack+'/6 láminas · Pallet '+s.boxes+'/4 cajas · Pallets por recoger '+s.palletsWaiting},
+ {n:8,name:'Almacén y despacho',sign:[48,4.3,9],pole:24,
+  desc:'El montacargas lleva los pallets al almacén. Cada 3 pallets se carga un camión y sale a despacho.',
+  live:s=>'Pallets en almacén '+s.wh+' · Camiones despachados '+s.trucks},
+ {n:9,name:'Oficinas y control',sign:[57.2,17.5,3.7],pole:30,
+  desc:'Sala de control y administración: supervisa la temperatura del horno, la tirada de la línea y los indicadores de producción.',
+  live:s=>'Tirada '+s.rate+' láminas/h · Rendimiento '+yieldTxt(s)},
+ {n:10,name:'Reciclaje (casco)',sign:[49,26.2,2.1],pole:24,
+  desc:'Recibe las láminas rechazadas y los recortes. El casco triturado vuelve a la tolva y reemplaza parte de la materia prima, lo que ahorra energía.',
+  live:s=>'En contenedor '+s.bin+' láminas · Reciclado acumulado '+Math.round(s.cascoKg)+' kg'}
+];
+const CAP={arena:6000,sosa:2000,caliza:2000};
+function pct(v){return Math.round(v*100)+' %';}
+function yieldTxt(s){const t=s.good+s.bad;return t?((s.good/t*100).toFixed(1)+' %'):'–';}
+function defP(s){return Math.min(.9,s.baseDef/100+Math.max(0,1480-s.T)*0.004+Math.max(0,s.T-1560)*0.003);}
+
+/* ---------- estado ---------- */
+let st, selected=3, smoke=[], signRects=[], logDirty=true;
+function fresh(){return {t:0,running:true,speed:2,rate:60,setT:1500,T:1500,baseDef:5,
+  silo:{arena:CAP.arena,sosa:CAP.sosa,caliza:CAP.caliza},cascoStock:0,
+  good:0,bad:0,stack:0,boxes:0,boxesTotal:0,palletsWaiting:0,wh:0,trucks:0,bin:0,cascoKg:0,rawKg:0,energy:0,
+  acc:0,phase:0,movers:[],qc:{bad:false,until:-1},tempAlert:0,
+  fork:{x:50.5,y:12.5,state:'idle',carry:false},
+  truck:{x:53,state:'dock',timer:0,load:0},
+  cart:{x:44.5,y:28.8,state:'idle',load:0,leg:0},
+  log:[]};}
+function log(msg){st.log.unshift({t:st.t,msg:msg});if(st.log.length>8)st.log.pop();logDirty=true;}
+function hhmm(t){const m=Math.floor(t);return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+
+function toward(o,tx,ty,v,dt){const dx=tx-o.x,dy=ty-o.y,d=Math.hypot(dx,dy),step=v*dt;if(d<=step){o.x=tx;o.y=ty;return true;}o.x+=dx/d*step;o.y+=dy/d*step;return false;}
+
+function emitSheet(){
+  // consumo de mezcla
+  const batch=24,casco=Math.min(st.cascoStock,batch*0.2),raw=batch-casco;st.cascoStock-=casco;st.rawKg+=raw;
+  const parts={arena:.6,sosa:.2,caliza:.2},names={arena:'arena',sosa:'sosa',caliza:'caliza'};
+  for(const k in parts){st.silo[k]-=raw*parts[k];if(st.silo[k]<CAP[k]*0.15){st.silo[k]=CAP[k];log('Reposición del silo de '+names[k]);}}
+  st.energy+=0.02*6.5*(1+(st.T-1500)/500);
+  const bad=Math.random()<defP(st);
+  st.qc={bad:bad,until:st.t+0.45};
+  st.movers.push(bad?{bad:true,p:0,dur:1.4,pts:[[46.6,12],[46.6,15],[45.4,23.5],[47.6,25.6]]}
+                    :{bad:false,p:0,dur:1.0,pts:[[46.6,12],[48,12],[48,16.6]]});
+}
+function arrive(m){
+  if(m.bad){st.bad++;st.bin++;}
+  else{st.good++;st.stack++;
+    if(st.stack>=6){st.stack=0;st.boxes++;st.boxesTotal++;
+      if(st.boxes>=4){st.boxes=0;st.palletsWaiting++;log('Pallet completo: 4 cajas listas para almacén');}}}
+}
+function step(dt){
+  st.t+=dt;
+  st.T+=(st.setT-st.T)*(1-Math.exp(-dt/15));
+  const al=st.T<1480?-1:(st.T>1560?1:0);
+  if(al!==st.tempAlert){st.tempAlert=al;if(al===-1)log('Alerta: horno bajo 1480 °C, suben los infundidos');else if(al===1)log('Alerta: horno sobre 1560 °C, suben burbujas y consumo');else log('Temperatura del horno en rango');}
+  st.phase+=dt*st.rate*2.2/60;
+  st.acc+=dt*st.rate/60;while(st.acc>=1){st.acc-=1;emitSheet();}
+  for(let i=st.movers.length-1;i>=0;i--){const m=st.movers[i];m.p+=dt/m.dur;if(m.p>=1){arrive(m);st.movers.splice(i,1);}}
+  // montacargas
+  const f=st.fork,V=11;
+  if(f.state==='idle'&&st.palletsWaiting>0)f.state='toPallet';
+  if(f.state==='toPallet'&&toward(f,51.5,16.1,V,dt)){st.palletsWaiting--;f.carry=true;f.state='toMid';}
+  else if(f.state==='toMid'&&toward(f,48.5,11.5,V,dt))f.state='toDoor';
+  else if(f.state==='toDoor'&&toward(f,48.5,8.3,V,dt)){f.carry=false;st.wh++;f.state='back';}
+  else if(f.state==='back'&&toward(f,50.5,12.5,V,dt))f.state='idle';
+  // camión
+  const k=st.truck;
+  if(k.state==='dock'&&st.wh>=3){st.wh-=3;k.state='loading';k.timer=1.5;k.load=3;}
+  else if(k.state==='loading'){k.timer-=dt;if(k.timer<=0){k.state='leaving';st.trucks++;log('Camión n.º '+st.trucks+' despachado con 3 pallets (72 láminas)');}}
+  else if(k.state==='leaving'){k.x+=14*dt;if(k.x>=72){k.state='returning';k.load=0;}}
+  else if(k.state==='returning'){k.x-=14*dt;if(k.x<=53){k.x=53;k.state='dock';}}
+  // carrito de casco
+  const c=st.cart,CV=16;
+  if(c.state==='idle'&&st.bin>=5){c.load=st.bin;st.bin=0;c.state='out';c.leg=0;}
+  else if(c.state==='out'){
+    if(c.leg===0){if(toward(c,15.2,28.8,CV,dt))c.leg=1;}
+    else if(toward(c,15.2,24.8,CV,dt)){const kg=c.load*20;st.cascoStock+=kg;st.cascoKg+=kg;log('Casco devuelto a la tolva: '+kg+' kg');c.load=0;c.state='back';c.leg=0;}}
+  else if(c.state==='back'){
+    if(c.leg===0){if(toward(c,15.2,28.8,CV,dt))c.leg=1;}
+    else if(toward(c,44.5,28.8,CV,dt))c.state='idle';}
+}
+
+/* ---------- dibujo de la maqueta ---------- */
+const KR='#c8a273',KR2='#b58d5b',GREY='#9aa0a0',RED='#d5352b';
+function drawBoard(){
+  box(0,0,60,30,0.6,'#b98f5c',-0.6);
+  // dimensiones
+  ctx.fillStyle='#1d2822';
+  gline([0,31.6],[60,31.6],'#1d2822',2);arrow([0,31.6],[1.4,31],[1.4,32.2]);arrow([60,31.6],[58.6,31],[58.6,32.2]);
+  gtext('LARGO: 60 cm',30,33.4,22,'#1d2822');
+  gline([-1.6,0],[-1.6,30],'#1d2822',2);arrow([-1.6,0],[-2.2,1.4],[-1,1.4]);arrow([-1.6,30],[-2.2,28.6],[-1,28.6]);
+  gtext('ANCHO: 30 cm',-3.4,15,22,'#1d2822',true);
+  // hoja de título sobre la base
+  topQ(18.5,43.5,20.2,27.6,0.02,'#fbfbf6','rgba(0,0,0,.35)');
+  gtext('PLANTA FABRICADORA DE VIDRIO',31,22.1,17,'#1d2822');
+  gtext('Vidrio plano · proceso float · 10 estaciones',31,24.3,11.5,'#444',false,600);
+  gtext('Arena + sosa + caliza → fusión → recocido → corte',31,26.1,10.5,'#666',false,600);
+  // tuberías de dosificación silos → tolva
+  const pipes=[[3,'#d9c79a',21],[7.2,'#efefe6',22],[11.4,'#bdb7a8',23]];
+  pipes.forEach((p,i)=>{gline([p[0],6.4],[p[0],p[2]],'#6d6558',3);gline([p[0],p[2]],[13.3,p[2]],'#6d6558',3);
+    const len=(p[2]-6.4)+(13.3-p[0]);for(let j=0;j<4;j++){let u=((st.phase*0.9+j*len/4+i*1.3)%len);let x=p[0],y=6.4+u;if(u>p[2]-6.4){y=p[2];x=p[0]+(u-(p[2]-6.4));}
+      const q=P(x,y,0.15);ctx.beginPath();ctx.arc(q[0],q[1],2.6,0,7);ctx.fillStyle=p[1];ctx.fill();ctx.strokeStyle='#5a5348';ctx.lineWidth=.7;ctx.stroke();}});
+  // ruta del casco
+  gline([44.5,28.8],[15.2,28.8],'#1f7a4d',1.5,[6,5]);gline([15.2,28.8],[15.2,24.2],'#1f7a4d',1.5,[6,5]);
+  gtext('retorno de casco',31,29.45,10.5,'#1f7a4d',false,600);
+}
+function arrow(a,b,c){poly([P(a[0],a[1],.02),P(b[0],b[1],.02),P(c[0],c[1],.02)],'#1d2822');}
+function drawWarehouse(){
+  const x=40,y=0.8,w=16,d=7,hw=6,hr=9,yc=y+d/2;
+  poly([P(x,y,hw),P(x+w,y,hw),P(x+w,yc,hr),P(x,yc,hr)],shade(KR,.85),EDGE);
+  faceY(x,x+w,y+d,0,hw,KR,EDGE);
+  poly([P(x+w,y,0),P(x+w,y+d,0),P(x+w,y+d,hw),P(x+w,yc,hr),P(x+w,y,hw)],shade(KR,.78),EDGE);
+  poly([P(x,yc,hr),P(x+w,yc,hr),P(x+w,y+d+.3,hw-.2),P(x,y+d+.3,hw-.2)],shade(KR,1.12),EDGE);
+  for(let i=1;i<16;i++){const a=P(x+i,yc,hr),b=P(x+i,y+d+.3,hw-.2);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.strokeStyle='rgba(60,40,20,.22)';ctx.lineWidth=1;ctx.stroke();}
+  faceY(46.5,50.5,y+d,0,4.4,'#2a211a');faceY(52.2,56,y+d,0,4.4,'#2a211a');
+  // pallets almacenados visibles en la puerta
+  const n=Math.min(st.wh,3);for(let i=0;i<n;i++)faceY(46.9+i*1.2,47.9+i*1.2,y+d,0,1.1+0.25*(i%2),'#d9b98a',EDGE);
+}
+function drawSilos(){
+  const s=[[3,'Arena',st.silo.arena/CAP.arena],[7.2,'Sosa',st.silo.sosa/CAP.sosa],[11.4,'Caliza',st.silo.caliza/CAP.caliza]];
+  s.forEach(a=>{cyl(a[0],4.5,1.9,0,13,KR);
+    const p=P(a[0]+0.3,4.5+1.9,6.2);
+    ctx.fillStyle='#fbfbf6';ctx.fillRect(p[0]-24,p[1]-9,48,18);ctx.strokeStyle='rgba(0,0,0,.4)';ctx.strokeRect(p[0]-24,p[1]-9,48,18);
+    stext(a[1],p,14,'#1d2822',600);
+    // indicador de nivel
+    const gx=p[0]-7,gy=p[1]+16,gh=46;ctx.fillStyle='#3a3026';ctx.fillRect(gx,gy,14,gh);
+    ctx.fillStyle=a[2]<.3?'#f0b429':'#7fd1b9';ctx.fillRect(gx+2,gy+2+(gh-4)*(1-a[2]),10,(gh-4)*a[2]);});
+}
+function tree(x,y,k){const b=P(x,y,0),t=P(x,y,1.6*k);ctx.strokeStyle='#5c4630';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(b[0],b[1]);ctx.lineTo(t[0],t[1]);ctx.stroke();
+  [[0,0,9],[-6,4,7],[6,3,7],[0,-7,7]].forEach((c,i)=>{ctx.beginPath();ctx.arc(t[0]+c[0]*k,t[1]+c[1]*k,c[2]*k,0,7);ctx.fillStyle=i%2?'#5aa23a':'#3f8a2e';ctx.fill();});}
+function drawFurnace(){
+  const x=14,y=8,w=8,d=8,h=9;
+  box(x,y,w,d,h,RED);
+  // marcos grises
+  faceY(x,x+w,y+d,h-0.8,h,'#8d9292',EDGE);faceX(x+w,y,y+d,h-0.8,h,shade('#8d9292',.8),EDGE);
+  faceY(x,x+0.7,y+d,0,h,'#8d9292');faceY(x+w-0.7,x+w,y+d,0,h,'#8d9292');
+  // boca de carga (entra la faja)
+  faceY(14.5,15.9,y+d,2.9,4.3,'#2b1a12');
+  // ventana de fuego
+  const fx0=16.8,fx1=21,fz0=1.1,fz1=4.3;faceY(fx0,fx1,y+d,fz0,fz1,'#2b1a12','#8d9292');
+  const heat=Math.max(.5,Math.min(1.25,(st.T-1300)/200)),tt=performance.now()/140;
+  for(let L=0;L<2;L++){ctx.beginPath();const base=fz0+.1;let p=P(fx0+.2,y+d,base);ctx.moveTo(p[0],p[1]);
+    for(let i=0;i<=6;i++){const xx=fx0+.2+(fx1-fx0-.4)*i/6;const hh=(L?1.3:2.4)*heat*(0.7+0.3*Math.sin(tt*(L?1.7:1)+i*1.9));
+      const a=P(xx-0.18,y+d,base+hh),b=P(xx+0.18,y+d,base+.25);ctx.lineTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);}
+    p=P(fx1-.2,y+d,base);ctx.lineTo(p[0],p[1]);ctx.closePath();ctx.fillStyle=L?'#ffd84a':'#ff7a1a';ctx.fill();}
+  // placa de temperatura
+  faceY(16.9,20.9,y+d,5.3,7,'#fbfbf6','#333');
+  const m=P(18.9,y+d,6.15);stext(Math.round(st.T)+' °C',m,17,st.tempAlert?'#c92a2a':'#1d2822');
+  // salida de vidrio fundido
+  faceX(x+w,10.9,13.1,0.9,2.1,'#ff8a2a','#5a2a10');
+  // chimeneas
+  cyl(17.9,10.5,0.95,h,18,'#8f9494');cyl(20.6,10.5,0.95,h,18,'#8f9494');
+}
+function ribbonColor(x){if(x<31){const k=(x-22)/9;return 'rgb(255,'+Math.round(138+80*k)+','+Math.round(42+90*k)+')';}return 'rgba(140,220,200,.82)';}
+function drawRibbon(x0,x1,z){
+  for(let x=x0;x<x1;x+=1){const e=Math.min(x1,x+1);topQ(x,e,11,13,z,ribbonColor(x+.5));}
+  const off=st.phase%2.2;for(let x=x0+off;x<x1;x+=2.2){if(x<=x0)continue;const a=P(x,11,z),b=P(x,13,z);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.strokeStyle=x<31?'rgba(255,255,255,.55)':'rgba(255,255,255,.9)';ctx.lineWidth=1.2;ctx.stroke();}
+  const a=P(x0,11,z),b=P(x1,11,z),c=P(x1,13,z),d=P(x0,13,z);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.moveTo(d[0],d[1]);ctx.lineTo(c[0],c[1]);ctx.strokeStyle='rgba(30,60,50,.45)';ctx.lineWidth=1;ctx.stroke();
+}
+function drawTinBath(){box(22,10.2,9,3.6,1.2,GREY);topQ(22.3,31,10.5,13.5,1.21,'#c9d0d2','rgba(0,0,0,.25)');drawRibbon(22,31,1.25);}
+function drawLehr(){
+  const x0=31,x1=40,yc=12,r=2.2,zb=1.6,n=10;
+  faceY(x0,x1,yc+r,0,zb,'#a3a9a9',EDGE);
+  for(let i=0;i<n;i++){const a0=Math.PI-i*Math.PI/n,a1=Math.PI-(i+1)*Math.PI/n,am=(a0+a1)/2;
+    const f=0.72+0.5*Math.sin(am)*(0.6+0.4*Math.cos(am-1.1));
+    poly([P(x0,yc+r*Math.cos(a0),zb+r*Math.sin(a0)),P(x1,yc+r*Math.cos(a0),zb+r*Math.sin(a0)),P(x1,yc+r*Math.cos(a1),zb+r*Math.sin(a1)),P(x0,yc+r*Math.cos(a1),zb+r*Math.sin(a1))],shade('#a9afaf',f),'rgba(40,40,40,.15)');}
+  const cap=[P(x1,yc-r,0)];for(let i=0;i<=12;i++){const a=Math.PI-i*Math.PI/12;cap.push(P(x1,yc+r*Math.cos(a),zb+r*Math.sin(a)));}cap.push(P(x1,yc+r,0));
+  poly(cap,'#858b8b',EDGE);
+  const op=[P(x1,yc-1.5,0.7)];for(let i=0;i<=10;i++){const a=Math.PI-i*Math.PI/10;op.push(P(x1,yc+1.5*Math.cos(a),1.5+1.4*Math.sin(a)));}op.push(P(x1,yc+1.5,0.7));
+  poly(op,'#2a2420');
+  for(let i=1;i<9;i++){const a=P(x0+i,yc+r,zb),b=P(x0+i,yc+r,0);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.strokeStyle='rgba(40,40,40,.18)';ctx.stroke();}
+}
+function drawQC(){
+  box(41,8.6,3,1.6,3.5,'#9aa0a0');
+  const on=st.t<st.qc.until,rp=P(41.9,10.2,2.5),gp=P(43.1,10.2,2.5);
+  lamp(rp,'#e03131',on&&st.qc.bad);lamp(gp,'#2fb344',on&&!st.qc.bad);
+  faceY(41.5,43.5,10.2,0.8,1.7,'#22302a','#111');
+}
+function lamp(p,col,on){ctx.beginPath();ctx.arc(p[0],p[1],5,0,7);ctx.fillStyle=on?col:shade(col,.38);ctx.fill();ctx.strokeStyle='#222';ctx.lineWidth=1;ctx.stroke();
+  if(on){ctx.beginPath();ctx.arc(p[0],p[1],11,0,7);ctx.fillStyle=col==='#e03131'?'rgba(224,49,49,.3)':'rgba(47,179,68,.3)';ctx.fill();}}
+function drawRoller(){box(40,10.6,6.6,2.8,1.1,'#8f9595');
+  for(let x=40.5;x<46.6;x+=.8){const a=P(x,10.7,1.11),b=P(x,13.3,1.11);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.strokeStyle='rgba(30,30,30,.45)';ctx.lineWidth=2;ctx.stroke();}
+  drawRibbon(40,45.6,1.2);
+  // puente de corte
+  box(45.4,10.2,.4,.4,2.6,'#f0b429');
+  box(45.3,10.2,.6,3.6,.45,'#f0b429',2.6);
+  box(45.4,13.4,.4,.4,2.6,'#f0b429');
+}
+function drawTruck(){const k=st.truck,x=k.x,y=9.2;let al=1;if(x>57)al=Math.max(0,1-(x-57)/7);if(al<=0)return;ctx.save();ctx.globalAlpha=al;
+  box(x,y+.1,5.6,1.6,.5,'#333',0);box(x,y,3.9,1.8,1.0,'#8c9399',.5);
+  for(let i=0;i<k.load;i++)box(x+.3+i*1.15,y+.3,1,1.2,.9,'#d9b98a',1.5);
+  box(x+4,y,1.6,1.8,1.9,'#f2c230',.5);faceX(x+5.6,y+.25,y+1.55,1.5,2.2,'#bfe6e0','#333');ctx.restore();}
+function drawFork(){const f=st.fork;box(f.x-.8,f.y-.55,1.6,1.1,1.1,'#ef7b1f',.25);box(f.x-.3,f.y-.45,.7,.9,.8,'#33373a',1.35);
+  box(f.x-.2,f.y+.55,.25,.2,2.4,'#2a2a2a',.1);box(f.x+.4,f.y+.55,.25,.2,2.4,'#2a2a2a',.1);
+  if(f.carry){box(f.x-.7,f.y+.8,1.6,1.5,.2,'#b08552',.5);box(f.x-.5,f.y+.95,1.2,1.2,1,'#d9b98a',.7);}}
+function drawOffice(){const x=55,y=15.5;box(x,y,4.5,4,3.4,'#cdb38a');
+  faceY(x+.4,x+2,y+4,1.3,2.7,'#bfe6e0','#444');faceY(x+2.5,x+4.1,y+4,1.3,2.7,'#bfe6e0','#444');faceX(x+4.5,y+.5,y+1.9,1.3,2.7,'#9fcfc8','#444');faceX(x+4.5,y+2.4,y+3.5,0,2.7,'#6b5a45','#444');
+  box(x-.3,y-.3,5.1,4.6,.3,'#b89a6c',3.4);}
+function drawTolva(){
+  // faja inclinada hacia la boca del horno
+  const bx0=14.6,bx1=15.8;
+  poly([P(bx0,21,1.8),P(bx1,21,1.8),P(bx1,16,3.2),P(bx0,16,3.2)],'#2c2f31',EDGE);
+  faceX(bx1,16,21,1.8,1.8,'#2c2f31');
+  poly([P(bx1,21,1.3),P(bx1,21,1.8),P(bx1,16,3.2),P(bx1,16,2.7)],'#555b5e',EDGE);
+  for(let i=0;i<6;i++){const u=((st.phase*0.5+i/6)%1),yy=21-5*u,zz=1.8+1.4*u;const p=P(15.2,yy,zz+.2);ctx.beginPath();ctx.arc(p[0],p[1],3.4,0,7);ctx.fillStyle=i%3===0?'#7fd1b9':'#e8dcc0';ctx.fill();ctx.strokeStyle='#6d6558';ctx.lineWidth=.7;ctx.stroke();}
+  // base y tolva (pirámide invertida)
+  box(14.2,21,2,2,1.7,KR2);
+  const x0=13.2,x1=17.2,y0=20,y1=24,zt=4.2,zb=1.7,ix0=14.4,ix1=16,iy0=21.2,iy1=22.8;
+  poly([P(x0,y1,zt),P(x1,y1,zt),P(ix1,iy1,zb),P(ix0,iy1,zb)],KR,EDGE);
+  poly([P(x1,y0,zt),P(x1,y1,zt),P(ix1,iy1,zb),P(ix1,iy0,zb)],shade(KR,.8),EDGE);
+  topQ(x0,x1,y0,y1,zt,shade(KR,1.25),EDGE);topQ(x0+.4,x1-.4,y0+.4,y1-.4,zt,'#d8cdb0','rgba(0,0,0,.3)');
+  [[14.3,21],[15.6,22.6],[16.2,21.2],[14.8,23]].forEach((q,i)=>{const p=P(q[0],q[1],zt);ctx.beginPath();ctx.arc(p[0],p[1],3,0,7);ctx.fillStyle=i%2?'#7fd1b9':'#bdb7a8';ctx.fill();});
+}
+function sheetAt(x,y,z,bad){const pts=[P(x-.9,y-.7,z),P(x+.9,y-.7,z),P(x+.9,y+.7,z),P(x-.9,y+.7,z)];poly(pts,bad?'rgba(235,150,140,.85)':'rgba(150,225,205,.85)',bad?'#c92a2a':'#22806d',1.3);}
+function drawMovers(){st.movers.forEach(m=>{const pts=m.pts;let tot=0,segs=[];for(let i=1;i<pts.length;i++){const l=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);segs.push(l);tot+=l;}
+  let u=Math.min(1,m.p)*tot,i=0;while(i<segs.length-1&&u>segs[i]){u-=segs[i];i++;}const k=segs[i]?u/segs[i]:0;
+  sheetAt(pts[i][0]+(pts[i+1][0]-pts[i][0])*k,pts[i][1]+(pts[i+1][1]-pts[i][1])*k,1.3,m.bad);});}
+function drawPacking(){
+  // mesa de apilado
+  box(47,16,2,1.6,.5,'#b08552');
+  for(let i=0;i<st.stack;i++)topQ(47.1,48.9,16.1,17.5,.55+i*.14,'rgba(150,225,205,.9)','#22806d');
+  // pallet en armado
+  box(50,17,3,3,.3,'#b08552');
+  const pos=[[50.15,17.15],[51.55,17.15],[50.15,18.55],[51.55,18.55]];
+  for(let i=0;i<st.boxes;i++)box(pos[i][0],pos[i][1],1.3,1.3,1.2,'#d9b98a',.3);
+  // pallets completos esperando
+  const n=Math.min(st.palletsWaiting,1);
+  for(let j=0;j<n;j++){const px=50,py=20.7;box(px,py,3,3,.3,'#b08552');pos.forEach(q=>box(q[0]-50+px,q[1]-17+py,1.3,1.3,1.2,'#d9b98a',.3));}
+}
+function drawBin(){box(46,24.5,6,3.5,2,'#1f7a4d');topQ(46.3,51.7,24.8,27.7,2.01,'#123f29');
+  const n=Math.min(26,6+st.bin*4);for(let i=0;i<n;i++){const rx=46.6+((i*37)%50)/10,ry=25+((i*53)%25)/10,p=P(rx,ry,2.05+((i*7)%4)/10);
+    ctx.beginPath();ctx.moveTo(p[0],p[1]-5);ctx.lineTo(p[0]+6,p[1]);ctx.lineTo(p[0]-2,p[1]+4);ctx.closePath();ctx.fillStyle=['#8fe0cc','#4fb3d9','#3aa17e','#c9f2e8'][i%4];ctx.fill();ctx.strokeStyle='rgba(0,0,0,.25)';ctx.lineWidth=.6;ctx.stroke();}
+  const m=P(49,28,1);stext('CASCO',m,13,'#eafff4');}
+function drawCart(){const c=st.cart;box(c.x-.8,c.y-.6,1.6,1.2,.9,'#2b9a63',.15);if(c.load>0){for(let i=0;i<4;i++){const p=P(c.x-.4+i*.28,c.y-.2+(i%2)*.4,1.15);ctx.beginPath();ctx.moveTo(p[0],p[1]-4);ctx.lineTo(p[0]+5,p[1]);ctx.lineTo(p[0]-2,p[1]+3);ctx.closePath();ctx.fillStyle=i%2?'#8fe0cc':'#4fb3d9';ctx.fill();}}}
+function person(x,y,body,helm){const b=P(x,y,0),t=P(x,y,1.5);ctx.strokeStyle=body;ctx.lineWidth=5;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(b[0],b[1]-2);ctx.lineTo(t[0],t[1]);ctx.stroke();ctx.lineCap='butt';
+  ctx.beginPath();ctx.arc(t[0],t[1]-4,3.6,0,7);ctx.fillStyle='#e8b98f';ctx.fill();ctx.beginPath();ctx.arc(t[0],t[1]-5.2,3.7,Math.PI,0);ctx.fillStyle=helm;ctx.fill();}
+function drawSigns(){signRects=[];ctx.font='700 12px "Barlow Condensed","Arial Narrow",Arial,sans-serif';
+  ST.forEach(s=>{const a=P(s.sign[0],s.sign[1],s.sign[2]),txt=s.n+'. '+s.name.toUpperCase(),w=ctx.measureText(txt).width+12,h=18,cx=a[0]+(s.dx||0),cy=a[1]-s.pole;
+    ctx.strokeStyle='#8a6b45';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(cx,cy);ctx.stroke();
+    const sel=s.n===selected;ctx.fillStyle=sel?'#1d2822':'#fbfbf6';ctx.fillRect(cx-w/2,cy-h/2,w,h);ctx.strokeStyle=sel?'#f0b429':'#1d2822';ctx.lineWidth=sel?2.5:1.2;ctx.strokeRect(cx-w/2,cy-h/2,w,h);
+    ctx.font='700 12px "Barlow Condensed","Arial Narrow",Arial,sans-serif';ctx.fillStyle=sel?'#fff':'#1d2822';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(txt,cx,cy+.5);
+    signRects.push({n:s.n,x:cx-w/2-4,y:cy-h/2-4,w:w+8,h:h+8});});}
+function drawSmoke(rdt){
+  if(st.running&&Math.random()<rdt*7){const i=Math.random()<.5?17.9:20.6,p=P(i,10.5,18);smoke.push({x:p[0],y:p[1]-4,r:6,a:.5});}
+  for(let i=smoke.length-1;i>=0;i--){const s=smoke[i];if(st.running){s.y-=rdt*22;s.x+=rdt*9;s.r+=rdt*7;s.a-=rdt*.2;}if(s.a<=0){smoke.splice(i,1);continue;}
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.fillStyle='rgba(120,125,125,'+s.a.toFixed(3)+')';ctx.fill();}}
+
+function render(rdt){
+  ctx.clearRect(0,0,W,H);
+  drawBoard();drawWarehouse();drawSilos();
+  tree(26,5,1);tree(33.5,4.6,1.15);tree(37,6.5,.8);
+  drawFurnace();drawTinBath();drawLehr();drawQC();drawRoller();drawTruck();drawFork();drawOffice();
+  drawTolva();drawMovers();drawPacking();
+  person(42,14.7,'#2f5fa8','#f2c230');person(43.6,14.6,'#2f5fa8','#f2c230');person(27,16,'#e0762a','#f2c230');
+  drawBin();drawCart();
+  tree(2,27.3,1.1);tree(7,26.6,.85);tree(57.5,26.5,1);tree(58.6,23,.8);
+  drawSmoke(rdt);drawSigns();
+}
+
+/* ---------- interfaz ---------- */
+const $=id=>document.getElementById(id);
+const legend=$('legend');
+ST.forEach(s=>{const li=document.createElement('li'),b=document.createElement('button');b.type='button';b.id='leg'+s.n;
+  const n=document.createElement('span');n.className='n';n.textContent=s.n+'.';const t=document.createElement('span');t.textContent=s.name;b.append(n,t);
+  b.addEventListener('click',()=>select(s.n));li.appendChild(b);legend.appendChild(li);});
+function select(n){selected=n;ST.forEach(s=>$('leg'+s.n).setAttribute('aria-pressed',s.n===n?'true':'false'));
+  const s=ST[n-1];$('stName').textContent=s.n+'. '+s.name;$('stDesc').textContent=s.desc;$('stLive').textContent=s.live(st);}
+cv.addEventListener('click',e=>{const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
+  for(let i=signRects.length-1;i>=0;i--){const q=signRects[i];if(x>=q.x&&x<=q.x+q.w&&y>=q.y&&y<=q.y+q.h){select(q.n);return;}}
+  // sin cartel: estación más cercana
+  let best=null,bd=1e9;ST.forEach(s=>{const p=P(s.sign[0],s.sign[1],s.sign[2]/2),d=Math.hypot(p[0]-x,p[1]-y);if(d<bd){bd=d;best=s.n;}});if(bd<90)select(best);});
+
+function bind(id,out,key,fmt){const el=$(id);el.addEventListener('input',()=>{st[key]=+el.value;$(out).textContent=fmt(+el.value);});}
+bind('inSpeed','outSpeed','speed',v=>'×'+v);
+bind('inRate','outRate','rate',v=>v+' láminas/h');
+bind('inTemp','outTemp','setT',v=>v+' °C');
+bind('inDef','outDef','baseDef',v=>v+' %');
+function syncRun(){$('btnRun').textContent=st.running?'Pausar':'Reanudar';$('runTxt').textContent=st.running?'En marcha':'En pausa';$('runDot').classList.toggle('paused',!st.running);}
+$('btnRun').addEventListener('click',()=>{st.running=!st.running;syncRun();});
+$('btnReset').addEventListener('click',()=>{const keep={speed:st.speed,rate:st.rate,setT:st.setT,baseDef:st.baseDef};st=fresh();Object.assign(st,keep);st.T=st.setT;smoke=[];log('Simulación reiniciada');syncRun();});
+
+function hud(){
+  $('clock').textContent=hhmm(st.t);$('tNow').textContent=Math.round(st.T)+' °C';$('defNow').textContent=(defP(st)*100).toFixed(1)+' %';
+  $('kGood').textContent=st.good;$('kBad').textContent=st.bad;$('kYield').textContent=yieldTxt(st);
+  $('kBoxes').textContent=st.boxesTotal;$('kWh').textContent=st.wh;$('kTrucks').textContent=st.trucks;
+  $('kCasco').textContent=Math.round(st.cascoKg)+' kg';$('kRaw').textContent=(st.rawKg/1000).toFixed(2)+' t';
+  $('kEnergy').textContent=st.energy.toFixed(1)+' GJ';$('kOut').textContent=(st.good*20/1000).toFixed(2)+' t';
+  $('stLive').textContent=ST[selected-1].live(st);
+  if(logDirty){logDirty=false;const ul=$('log');ul.textContent='';st.log.forEach(e=>{const li=document.createElement('li'),tm=document.createElement('time'),sp=document.createElement('span');tm.textContent=hhmm(e.t);sp.textContent=e.msg;li.append(tm,sp);ul.appendChild(li);});}
+}
+
+/* ---------- arranque ---------- */
+st=fresh();
+log('Arranque de planta: horno a 1500 °C');
+for(let i=0;i<900;i++)step(0.1);            // estado inicial realista: 90 min ya simulados
+if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)st.running=false;
+select(3);syncRun();
+let last=performance.now(),hudT=0;
+function frame(now){const rdt=Math.min(.05,(now-last)/1000);last=now;
+  if(st.running){let sim=rdt*st.speed;while(sim>0){const d=Math.min(.1,sim);step(d);sim-=d;}}
+  render(rdt);hudT+=rdt;if(hudT>.15){hudT=0;hud();}
+  requestAnimationFrame(frame);}
+hud();render(0);requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
